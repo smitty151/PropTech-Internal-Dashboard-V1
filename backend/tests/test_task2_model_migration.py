@@ -39,9 +39,16 @@ def mongo_db():
 
 @pytest.fixture(scope="module")
 def admin_session():
+    import time
     s = requests.Session()
-    r = s.post(f"{BASE_URL}/api/auth/login",
-               json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}, timeout=30)
+    # Auth is rate-limited at 5/min per IP; back off if exhausted by prior test files.
+    for _ in range(3):
+        r = s.post(f"{BASE_URL}/api/auth/login",
+                   json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}, timeout=30)
+        if r.status_code == 429:
+            time.sleep(65)
+            continue
+        break
     assert r.status_code == 200, r.text
     return s
 

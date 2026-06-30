@@ -1,0 +1,47 @@
+{
+  "summary": "Task-3 (slowapi rate limiting) confirmatory backend testing. Created lean sequential confirm-suite /app/backend/tests/test_task3_rate_limit_confirm.py (4 tests, ~3:18 runtime, hitting localhost:8001 directly to bypass Cloudflare). Result: 3/4 PASS, 1 FAIL — auth-login 5/min and valuation-memo 5/min both return CLEAN JSON {error: 'rate_limit_exceeded', detail: '...5 per 1 minute...'}, but the global 60/min limit returns a DIFFERENT (non-spec) JSON body {error: 'Rate limit exceeded: 60 per 1 minute'} — no 'detail' key and 'error' value is the raw message, not the 'rate_limit_exceeded' code. Regression suite (test_proptech_backend.py + test_task2_model_migration.py) re-run: 45/45 PASS after letting the 60/min bucket cool down.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/markets (and any route hitting only the global 60/min default)",
+        "issue": "429 body shape is INCONSISTENT with the spec. When the global default limit (60/minute) is exceeded, slowapi's SlowAPIMiddleware catches RateLimitExceeded internally and returns its own JSON: {\"error\": \"Rate limit exceeded: 60 per 1 minute\"} — missing the 'detail' key AND the 'error' value is the raw message string, not the 'rate_limit_exceeded' machine-readable code. Decorator-applied limits (auth 5/min, memo 5/min) correctly invoke our custom rate_limit_handler and return the canonical {\"error\": \"rate_limit_exceeded\", \"detail\": \"Rate limit exceeded: 5 per 1 minute. Please try again shortly.\"} body. ROOT CAUSE: app.add_exception_handler(RateLimitExceeded, rate_limit_handler) in server.py:31 is bypassed by SlowAPIMiddleware (server.py:32) because the middleware short-circuits and returns its own response before Starlette's exception-handler chain runs for global-default breaches. Decorator-raised RateLimitExceeded propagates through the normal handler chain — hence the inconsistency. FIX OPTIONS: (1) Configure slowapi's middleware to delegate to our handler — pass the handler to the Limiter (e.g. patch _rate_limit_exceeded_handler) or replace SlowAPIMiddleware with a thin custom middleware that calls rate_limit_handler on RateLimitExceeded. (2) Remove SlowAPIMiddleware and apply the global default explicitly via a router-level dependency / decorator. (3) Override slowapi.extension._rate_limit_exceeded_handler at import time to point at our handler.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_task3_rate_limit_confirm.py",
+    "/app/backend/tests/test_task3_rate_limiting.py",
+    "/app/backend/tests/test_proptech_backend.py",
+    "/app/backend/tests/test_task2_model_migration.py",
+    "/app/test_reports/pytest/task3_confirm_results.xml",
+    "/app/test_reports/pytest/regression_results.xml"
+  ],
+  "action_items": [
+    "FIX (HIGH): Make the global 60/min 429 emit the SAME JSON body as the decorator-applied 429s ({error: 'rate_limit_exceeded', detail: '...'}). Recommended approach: register the custom handler with slowapi itself (not just with FastAPI) — e.g. `limiter._rate_limit_exceeded_handler = rate_limit_handler` in core/rate_limit.py, OR replace `app.add_middleware(SlowAPIMiddleware)` with a small custom ASGI middleware that wraps the call in try/except RateLimitExceeded and delegates to rate_limit_handler. Re-run /app/backend/tests/test_task3_rate_limit_confirm.py::test_03_global_60_per_min_on_markets to confirm.",
+    "Be aware: any test that hits /api/markets multiple times within a 60s window can be affected by the global limit. Tests should either sleep or use distinct routes — already validated by adding a 70s sleep before regression and getting 45/45."
+  ],
+  "critical_code_review_comments": [
+    "core/rate_limit.py: limiter is built with `headers_enabled=False` — that's fine, but the custom rate_limit_handler is ONLY hooked into FastAPI's exception chain, not into slowapi's internal middleware response path. This is the root cause of the inconsistent 429 body for the global limit.",
+    "core/rate_limit.py:_user_or_ip_key correctly reads JWT from cookie OR Bearer header and falls back to IP. Verified: 6 valuation-memo POSTs from the SAME admin session => 6th 429 (per-user keying works). Decoding uses os.environ['JWT_SECRET'] directly — fine, but will KeyError loudly if JWT_SECRET is missing; acceptable fail-fast behaviour.",
+    "server.py: SlowAPIMiddleware is added AFTER the exception handler — order doesn't fix the inconsistency because the middleware swallows the exception itself before it propagates to Starlette's handler chain.",
+    "routers/auth.py: rate-limit decorator is correctly applied to login/register/resend-verification/logout (mutating routes) but NOT to /me (read-only) — verified /me responds 200 on 8 rapid GETs after one login. Good separation.",
+    "routers/memo.py: /valuation-memo decorator uses key_func=_user_or_ip_key so two different users can each do 5/min independently — verified shape via admin login (200×5 PDFs then 429) within one session."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_task3_rate_limit_confirm.py (new — 4 lean confirmatory tests as per E1's brief)"
+  ],
+  "success_rate": {
+    "backend_task3_confirm": "75% (3/4) — global-limit JSON shape bug",
+    "backend_regression": "100% (45/45)",
+    "frontend": "not tested (backend only per request)"
+  },
+  "test_credentials": "admin@placeholder.in / admin123 — works",
+  "seed_data_creation": "None. Confirm-suite uses transient sessions and invalid creds for login bursts; memo burst reuses admin session.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_task3_rate_limit_confirm.py -v -n 0` against http://localhost:8001 (NOT the preview URL — Cloudflare causes 502s under burst). Each test sleeps 65s for window reset; total ~3:20. Lightweight verification only — the older /app/backend/tests/test_task3_rate_limiting.py is a more exhaustive 8-class suite (~8 min) that can be used for deeper coverage if main agent fixes the global-limit handler. Regression: `pytest backend/tests/test_proptech_backend.py backend/tests/test_task2_model_migration.py -v -n 0` — 45/45 expected; just remember to sleep ≥65s after running any 60/min-bucket burst test or test_markets_authenticated will flake-fail.",
+  "rca_of_the_issue": "BUG: Global 60/min 429 body shape differs from decorator-applied 429 body shape. REPRODUCTION: `for i in $(seq 1 61); do curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:8001/api/markets; done | tail -3` — 60 → 200, 61 → 429 with body `{\"error\":\"Rate limit exceeded: 60 per 1 minute\"}`. Compare with `for i in $(seq 1 6); do curl -s -X POST http://localhost:8001/api/auth/login -H 'content-type: application/json' -d '{\"email\":\"x@x\",\"password\":\"x\"}'; echo; done | tail -1` — body `{\"error\":\"rate_limit_exceeded\",\"detail\":\"Rate limit exceeded: 5 per 1 minute. Please try again shortly.\"}`. ROOT CAUSE: server.py adds SlowAPIMiddleware which catches RateLimitExceeded INSIDE the middleware (returns its own JSONResponse), so it never propagates to Starlette's exception-handler chain where app.add_exception_handler(RateLimitExceeded, rate_limit_handler) is wired. Decorator-applied limits raise during route execution AFTER the middleware ran, so the exception travels through the handler chain and hits our custom handler. MITIGATION: register the custom handler with slowapi directly — e.g. add `limiter._rate_limit_exceeded_handler = rate_limit_handler` in core/rate_limit.py, OR drop SlowAPIMiddleware and apply the 60/min global default through a `@limiter.limit('60/minute', key_func=get_remote_address)` dependency injected into the router (or via a custom small ASGI middleware that delegates to rate_limit_handler on RateLimitExceeded)."
+}

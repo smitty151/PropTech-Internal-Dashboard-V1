@@ -1,12 +1,16 @@
-"""Valuation memo (PDF) + memo history endpoints."""
+"""Valuation memo (PDF) + memo history endpoints.
+
+/valuation-memo is rate-limited at 5/minute per authenticated user (or IP when anonymous).
+"""
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
 from core.db import db
 from core.email_utils import verified_filter
+from core.rate_limit import limiter, _user_or_ip_key
 from core.security import get_current_user
 from models import Comp, Development, Memo
 
@@ -22,7 +26,8 @@ class MemoIn(BaseModel):
 
 
 @router.post("/valuation-memo")
-async def valuation_memo(payload: MemoIn, user: dict = Depends(get_current_user)):
+@limiter.limit("5/minute", key_func=_user_or_ip_key)
+async def valuation_memo(request: Request, payload: MemoIn, user: dict = Depends(get_current_user)):
     from valuation_memo import build_valuation_memo
     cq: dict = {"city": payload.city}
     if payload.submarket:

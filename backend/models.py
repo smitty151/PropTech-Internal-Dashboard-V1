@@ -115,7 +115,7 @@ class Development(BaseDocument):
     size: Optional[float] = None
     completion_year: Optional[int] = None
     description: Optional[str] = None
-    source: str
+    source: Optional[str] = None
     ingested_at: str = Field(default_factory=utcnow_iso)
 
 
@@ -134,7 +134,7 @@ class Comp(BaseDocument):
     price_per_sqft: float = 0.0
     owner: str = "Private"
     transaction_date: Optional[str] = None
-    source: str
+    source: Optional[str] = None
     doc_no: Optional[str] = None
     ingested_at: str = Field(default_factory=utcnow_iso)
 

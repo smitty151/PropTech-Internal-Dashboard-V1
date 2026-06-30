@@ -1,8 +1,13 @@
 """Seed realistic mock data for PlaceHolder PropTech platform.
 All numbers are illustrative; replace with real APIs/scrapers in Phase 2.
+
+Writes go through the Task-2 typed models (Development, Comp, Reit) so
+seed data complies with the BaseDocument + to_mongo() contract.
 """
 import random
 from datetime import datetime, timezone
+
+from models import Comp, Development, Reit
 
 random.seed(42)
 
@@ -26,7 +31,6 @@ DEV_TYPES = ["Metro", "Highway", "Railway", "Airport", "Residential", "Commercia
 
 DEV_STATUSES = ["Announced", "Approved", "Under Construction", "Operational"]
 
-# Curated infrastructure project names (realistic-sounding, illustrative)
 INFRA_NAMES = {
     "Metro": ["Aqua Line Extension", "Phase 3 Metro Corridor", "Yellow Line Phase 2",
               "Airport Express Link", "Green Line North", "Purple Line Phase 4"],
@@ -56,17 +60,21 @@ OWNERS = ["DLF Ltd", "Godrej Properties", "Prestige Estates", "Brigade Group", "
           "Tata Realty", "Phoenix Mills", "L&T Realty", "Sobha Developers", "Adani Realty"]
 
 REITS = [
-    {"symbol": "EMBASSY", "name": "Embassy Office Parks REIT", "category": "Commercial Office",
-     "market_cap_cr": 36500, "dividend_yield": 6.8, "nav": 392.5, "ltv": 32.0,
+    {"symbol": "EMBASSY", "name": "Embassy Office Parks REIT",
+     "dividend_yield": 6.8, "sector": "Commercial Office",
+     "category": "Commercial Office", "market_cap_cr": 36500, "nav": 392.5, "ltv": 32.0,
      "description": "India's first listed REIT — Grade-A office assets across Bengaluru, Mumbai, Pune."},
-    {"symbol": "MINDSPACE", "name": "Mindspace Business Parks REIT", "category": "Commercial Office",
-     "market_cap_cr": 22100, "dividend_yield": 6.4, "nav": 374.2, "ltv": 28.5,
+    {"symbol": "MINDSPACE", "name": "Mindspace Business Parks REIT",
+     "dividend_yield": 6.4, "sector": "Commercial Office",
+     "category": "Commercial Office", "market_cap_cr": 22100, "nav": 374.2, "ltv": 28.5,
      "description": "K Raheja-sponsored REIT with assets in MMR, Hyderabad, Pune & Chennai."},
-    {"symbol": "BIRET", "name": "Brookfield India REIT", "category": "Commercial Office",
-     "market_cap_cr": 14800, "dividend_yield": 7.1, "nav": 282.0, "ltv": 36.0,
+    {"symbol": "BIRET", "name": "Brookfield India REIT",
+     "dividend_yield": 7.1, "sector": "Commercial Office",
+     "category": "Commercial Office", "market_cap_cr": 14800, "nav": 282.0, "ltv": 36.0,
      "description": "Brookfield-sponsored Pan-India Grade-A commercial portfolio."},
-    {"symbol": "NXST", "name": "Nexus Select Trust", "category": "Retail / Mall",
-     "market_cap_cr": 21300, "dividend_yield": 6.2, "nav": 142.1, "ltv": 29.0,
+    {"symbol": "NXST", "name": "Nexus Select Trust",
+     "dividend_yield": 6.2, "sector": "Retail / Mall",
+     "category": "Retail / Mall", "market_cap_cr": 21300, "nav": 142.1, "ltv": 29.0,
      "description": "India's first retail REIT — urban consumption centres across 14 cities."},
 ]
 
@@ -76,7 +84,7 @@ def _rand_coord(lat, lng, spread=0.18):
 
 
 async def seed_all(db):
-    # Markets
+    # Markets — kept as a plain reference collection (not in the Task-2 model set).
     await db.markets.insert_many([
         {"key": c["key"], "name": c["name"], "lat": c["lat"], "lng": c["lng"],
          "submarkets": c["submarkets"]} for c in CITIES
@@ -97,23 +105,27 @@ async def seed_all(db):
             sub = random.choice(city["submarkets"])
             status = random.choice(DEV_STATUSES)
             year = random.randint(2024, 2029)
-            inv = round(random.uniform(150, 12000), 1)  # INR crore
-            size = round(random.uniform(0.8, 250), 1)   # acres or lakh sqft (depends on type)
-            developments.append({
-                "name": f"{base_name} — {sub}",
-                "type": t,
-                "status": status,
-                "city": city["name"],
-                "city_key": city["key"],
-                "submarket": sub,
-                "lat": lat,
-                "lng": lng,
-                "developer": random.choice(OWNERS) if t not in ("Metro", "Highway", "Railway", "Airport") else "Govt / PSU",
-                "investment_inr_cr": inv,
-                "size": size,
-                "completion_year": year,
-                "description": f"{t} development in {sub}, {city['name']}. Expected to add capacity and demand uplift to the surrounding micro-market.",
-            })
+            inv = round(random.uniform(150, 12000), 1)
+            size = round(random.uniform(0.8, 250), 1)
+            dev = Development(
+                name=f"{base_name} — {sub}",
+                type=t,
+                status=status,
+                city=city["name"],
+                submarket=sub,
+                lat=lat,
+                lng=lng,
+                developer=random.choice(OWNERS) if t not in ("Metro", "Highway", "Railway", "Airport") else "Govt / PSU",
+                investment_inr_cr=inv,
+                size=size,
+                completion_year=year,
+                description=f"{t} development in {sub}, {city['name']}. Expected to add capacity and demand uplift to the surrounding micro-market.",
+                source="Seed (mock)",
+            )
+            doc = dev.to_mongo()
+            doc.pop("_id", None)
+            doc["city_key"] = city["key"]  # retain legacy convenience key for frontend
+            developments.append(doc)
     await db.developments.insert_many(developments)
 
     # Comps
@@ -135,25 +147,37 @@ async def seed_all(db):
                 asking = round(psf * sqft, 0)
                 sold = round(asking * random.uniform(0.9, 1.0), 0)
                 rent_pm = sold
-            comps.append({
-                "city": city["name"],
-                "city_key": city["key"],
-                "submarket": sub,
-                "address": f"{random.randint(1,99)}/{random.randint(100,999)}, {sub}",
-                "property_type": pt,
-                "transaction_type": tx,
-                "size_sqft": sqft,
-                "building_age_yrs": random.randint(0, 28),
-                "land_size_acres": round(random.uniform(0.05, 4.0), 2) if pt in ("Villa", "Plot", "Warehouse") else None,
-                "asking_price_inr": asking,
-                "sold_price_inr": sold,
-                "rent_pm_inr": rent_pm,
-                "price_per_sqft": round(sold / sqft, 0) if sqft else 0,
-                "owner": random.choice(OWNERS + ["Private Individual", "Corporate Entity"]),
-                "transaction_date": f"{random.randint(2023, 2026)}-{random.randint(1,12):02d}-{random.randint(1,28):02d}",
-                "source": "MLS Aggregator (mock)",
-            })
+            comp = Comp(
+                city=city["name"],
+                submarket=sub,
+                address=f"{random.randint(1,99)}/{random.randint(100,999)}, {sub}",
+                property_type=pt,
+                transaction_type=tx,
+                size_sqft=sqft,
+                building_age_yrs=random.randint(0, 28),
+                land_size_acres=round(random.uniform(0.05, 4.0), 2) if pt in ("Villa", "Plot", "Warehouse") else None,
+                asking_price_inr=asking,
+                sold_price_inr=sold,
+                price_per_sqft=round(sold / sqft, 0) if sqft else 0,
+                owner=random.choice(OWNERS + ["Private Individual", "Corporate Entity"]),
+                transaction_date=f"{random.randint(2023, 2026)}-{random.randint(1,12):02d}-{random.randint(1,28):02d}",
+                source="Seed (mock)",
+            )
+            doc = comp.to_mongo()
+            doc.pop("_id", None)
+            doc["city_key"] = city["key"]
+            doc["rent_pm_inr"] = rent_pm
+            comps.append(doc)
     await db.comps.insert_many(comps)
 
-    # REITs
-    await db.reits.insert_many(REITS)
+    # REITs — go through the Reit model (Task-2 contract). Extra fields preserved via extra='allow'.
+    reit_docs = []
+    for r in REITS:
+        reit = Reit(**{k: r[k] for k in ("symbol", "name", "dividend_yield", "sector")})
+        doc = reit.to_mongo()
+        doc.pop("_id", None)
+        # Preserve extra display-only fields the frontend uses.
+        for k in ("category", "market_cap_cr", "nav", "ltv", "description"):
+            doc[k] = r[k]
+        reit_docs.append(doc)
+    await db.reits.insert_many(reit_docs)

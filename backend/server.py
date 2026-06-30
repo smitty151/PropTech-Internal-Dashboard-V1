@@ -8,8 +8,11 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from core.db import db, client
+from core.rate_limit import limiter, rate_limit_handler
 from core.security import hash_password, verify_password
 from models import User
 from routers import auth as auth_router
@@ -22,6 +25,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PlaceHolder PropTech API")
+
+# Rate limiting — must be registered before routers are included.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Single /api umbrella that mounts every router
 api_router = APIRouter(prefix="/api")

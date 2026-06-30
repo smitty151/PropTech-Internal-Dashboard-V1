@@ -1,12 +1,16 @@
-"""Auth endpoints: register, login, logout, verify-email, resend-verification, me."""
+"""Auth endpoints: register, login, logout, verify-email, resend-verification, me.
+
+Every /auth/* mutating endpoint is rate-limited at 5/minute per IP via slowapi.
+"""
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response, Depends
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, EmailStr, Field
 
 from core.db import db
 from core.email_utils import new_verification_token, send_verification_email
+from core.rate_limit import limiter
 from core.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, set_auth_cookies,
@@ -15,6 +19,8 @@ from core.security import (
 from models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+AUTH_LIMIT = "5/minute"
 
 
 class RegisterIn(BaseModel):
@@ -34,7 +40,8 @@ class ResendIn(BaseModel):
 
 
 @router.post("/register")
-async def register(payload: RegisterIn, response: Response):
+@limiter.limit(AUTH_LIMIT)
+async def register(request: Request, payload: RegisterIn, response: Response):
     email = payload.email.lower()
     existing = await db.users.find_one({"email": email})
     if existing:
@@ -61,7 +68,8 @@ async def register(payload: RegisterIn, response: Response):
 
 
 @router.post("/login")
-async def login(payload: LoginIn, response: Response):
+@limiter.limit(AUTH_LIMIT)
+async def login(request: Request, payload: LoginIn, response: Response):
     email = payload.email.lower()
     raw = await db.users.find_one({"email": email})
     if not raw or not verify_password(payload.password, raw["password_hash"]):
@@ -84,7 +92,8 @@ async def login(payload: LoginIn, response: Response):
 
 
 @router.get("/verify-email")
-async def verify_email(token: str):
+@limiter.limit(AUTH_LIMIT)
+async def verify_email(request: Request, token: str):
     raw = await db.users.find_one({"verification_token": token})
     if not raw:
         raise HTTPException(status_code=400, detail="Invalid or already-used verification link.")
@@ -100,7 +109,8 @@ async def verify_email(token: str):
 
 
 @router.post("/resend-verification")
-async def resend_verification(payload: ResendIn):
+@limiter.limit(AUTH_LIMIT)
+async def resend_verification(request: Request, payload: ResendIn):
     raw = await db.users.find_one({"email": payload.email.lower()})
     # Always respond ok to avoid email enumeration
     if not raw:
@@ -118,7 +128,8 @@ async def resend_verification(payload: ResendIn):
 
 
 @router.post("/logout")
-async def logout(response: Response):
+@limiter.limit(AUTH_LIMIT)
+async def logout(request: Request, response: Response):
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
     return {"ok": True}

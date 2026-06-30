@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="8" time="524.217" timestamp="2026-06-30T11:57:02.702636+00:00" hostname="agent-env-76783c70-c695-445e-8750-f468bddea4e1"><testcase classname="tests.test_task3_rate_limiting.TestAuthLoginRateLimit" name="test_login_6th_call_returns_429_json" time="65.005"><failure message="AssertionError: call 0: 422 {&quot;detail&quot;:[{&quot;type&quot;:&quot;value_error&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;email&quot;],&quot;msg&quot;:&quot;value is not a valid email address: The part after the @-&#10;assert 422 in (401, 403)&#10; +  where 422 = &lt;Response [422]&gt;.status_code">tests/test_task3_rate_limiting.py:48: in test_login_6th_call_returns_429_json
+    assert last.status_code in (401, 403), f"call {i}: {last.status_code} {last.text[:120]}"
+E   AssertionError: call 0: 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"value is not a valid email address: The part after the @-
+E   assert 422 in (401, 403)
+E    +  where 422 = &lt;Response [422]&gt;.status_code</failure></testcase><testcase classname="tests.test_task3_rate_limiting.TestAuthMeNotRateLimited" name="test_auth_me_allows_more_than_5_per_minute" time="65.573" /><testcase classname="tests.test_task3_rate_limiting.TestAuthRegisterRateLimit" name="test_register_5_then_429" time="65.003"><failure message="AssertionError: call 0: 422 {&quot;detail&quot;:[{&quot;type&quot;:&quot;value_error&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;email&quot;],&quot;msg&quot;:&quot;value is not a valid email address: The part after the @-&#10;assert 422 in (200, 201)&#10; +  where 422 = &lt;Response [422]&gt;.status_code">tests/test_task3_rate_limiting.py:91: in test_register_5_then_429
+    assert last.status_code in (200, 201), f"call {i}: {last.status_code} {last.text[:120]}"
+E   AssertionError: call 0: 422 {"detail":[{"type":"value_error","loc":["body","email"],"msg":"value is not a valid email address: The part after the @-
+E   assert 422 in (200, 201)
+E    +  where 422 = &lt;Response [422]&gt;.status_code</failure></testcase><testcase classname="tests.test_task3_rate_limiting.TestAuthResendRateLimit" name="test_resend_5_then_429" time="65.003"><failure message="AssertionError: call 0: 422&#10;assert 422 == 200&#10; +  where 422 = &lt;Response [422]&gt;.status_code">tests/test_task3_rate_limiting.py:105: in test_resend_5_then_429
+    assert r.status_code == 200, f"call {i}: {r.status_code}"
+E   AssertionError: call 0: 422
+E   assert 422 == 200
+E    +  where 422 = &lt;Response [422]&gt;.status_code</failure></testcase><testcase classname="tests.test_task3_rate_limiting.TestAuthLogoutRateLimit" name="test_logout_5_then_429" time="65.214" /><testcase classname="tests.test_task3_rate_limiting.TestValuationMemoUserRateLimit" name="test_admin_memo_5_then_429" time="65.507" /><testcase classname="tests.test_task3_rate_limiting.TestGlobalDefaultRateLimit" name="test_markets_60_then_429" time="67.588"><failure message="AssertionError: {'error': 'Rate limit exceeded: 60 per 1 minute'}&#10;assert 'Rate limit e... per 1 minute' == 'rate_limit_exceeded'&#10;  &#10;  - rate_limit_exceeded&#10;  + Rate limit exceeded: 60 per 1 minute">tests/test_task3_rate_limiting.py:156: in test_markets_60_then_429
+    _assert_429_json(r)
+tests/test_task3_rate_limiting.py:30: in _assert_429_json
+    assert body.get("error") == "rate_limit_exceeded", body
+E   AssertionError: {'error': 'Rate limit exceeded: 60 per 1 minute'}
+E   assert 'Rate limit e... per 1 minute' == 'rate_limit_exceeded'
+E     
+E     - rate_limit_exceeded
+E     + Rate limit exceeded: 60 per 1 minute</failure></testcase><testcase classname="tests.test_task3_rate_limiting.TestRateLimitWindowReset" name="test_login_window_resets_after_60s" time="65.214"><failure message="assert 422 == 429&#10; +  where 422 = &lt;Response [422]&gt;.status_code">tests/test_task3_rate_limiting.py:172: in test_login_window_resets_after_60s
+    assert r.status_code == 429
+E   assert 422 == 429
+E    +  where 422 = &lt;Response [422]&gt;.status_code</failure></testcase></testsuite></testsuites>
