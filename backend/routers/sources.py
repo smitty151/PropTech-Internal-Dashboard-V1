@@ -4,9 +4,10 @@ import io
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 
 from core.db import db
+from core.audit import record_audit
 from core.security import get_current_user
 from models import Comp, DataSourceRun, Development
 
@@ -51,7 +52,7 @@ async def list_data_sources(user: dict = Depends(get_current_user)):
 
 
 @router.post("/nhai/refresh")
-async def refresh_nhai(user: dict = Depends(get_current_user)):
+async def refresh_nhai(request: Request, user: dict = Depends(get_current_user)):
     from data_sources.nhai_data import NHAI_PROJECTS
     count = 0
     for p in NHAI_PROJECTS:
@@ -79,11 +80,16 @@ async def refresh_nhai(user: dict = Depends(get_current_user)):
         if res.upserted_id or res.modified_count:
             count += 1
     await _record_run("nhai", count)
+    await record_audit(
+        "data_source_refresh", request=request,
+        user_id=user["id"], user_email=user["email"],
+        payload={"source": "nhai", "ingested": count},
+    )
     return {"ok": True, "ingested": count, "source": "NHAI / data.gov.in"}
 
 
 @router.post("/sub_registrar/refresh")
-async def refresh_sub_registrar(user: dict = Depends(get_current_user)):
+async def refresh_sub_registrar(request: Request, user: dict = Depends(get_current_user)):
     from data_sources.registrar_data import SUB_REGISTRAR_RECORDS
     count = 0
     for r in SUB_REGISTRAR_RECORDS:
@@ -113,6 +119,11 @@ async def refresh_sub_registrar(user: dict = Depends(get_current_user)):
         if res.upserted_id or res.modified_count:
             count += 1
     await _record_run("sub_registrar", count)
+    await record_audit(
+        "data_source_refresh", request=request,
+        user_id=user["id"], user_email=user["email"],
+        payload={"source": "sub_registrar", "ingested": count},
+    )
     return {"ok": True, "ingested": count, "source": "Maharashtra IGR + Delhi DORIS"}
 
 

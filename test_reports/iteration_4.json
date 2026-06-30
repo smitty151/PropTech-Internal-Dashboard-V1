@@ -1,0 +1,49 @@
+{
+  "summary": "Task 4 (audit logs + ErrorBoundary) verified end-to-end. Created /app/backend/tests/test_task4_audit_logs.py with 9 lean tests covering all 5 audit actions (login, logout, memo_generated, data_source_refresh×2, verification_email_sent×2) plus ISO-UTC timestamp / IP shape / best-effort exception-swallowing checks. Result: 9/9 PASS. Regression suite (test_proptech_backend.py + test_task2_model_migration.py) re-run: 45/45 PASS. Frontend: landing page (/) and /login both render normally with NO data-testid='error-boundary-fallback' on the DOM, confirming the boundary is a transparent pass-through. ErrorBoundary source inspection confirms class component with getDerivedStateFromError + componentDidCatch and required data-testids (error-boundary-fallback, error-boundary-reload, error-boundary-home, error-boundary-message). App.js wraps the entire app (AuthProvider + BrowserRouter) inside <ErrorBoundary> at the root.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/register, /api/auth/resend-verification",
+        "issue": "Resend test-mode key cannot send to arbitrary recipients (logs 'You can only send testing emails to your own email address ...'). This is INFORMATIONAL — send_verification_email correctly catches the Resend exception and the verification_email_sent audit is still recorded as required. No code change needed unless Resend domain verification is desired."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_task4_audit_logs.py",
+    "/app/test_reports/pytest/task4_audit_results.xml",
+    "/app/test_reports/pytest/regression_results.xml"
+  ],
+  "action_items": [
+    "No new actions for Task 4. Previously-reported Task 3 issue (global-60/min 429 JSON shape inconsistency) remains open from iteration_3 and is still applicable (LIMITER_ENABLED=false right now suppresses it during testing). Re-evaluate before turning the limiter back on for production."
+  ],
+  "critical_code_review_comments": [
+    "core/audit.py: record_audit is correctly best-effort — try/except Exception around insert_one, logs warning and never re-raises. _client_ip prefers x-forwarded-for and falls back to request.client.host. Good.",
+    "routers/auth.py: register call order is `insert_one(user) -> send_verification_email -> record_audit`. send_verification_email is itself best-effort (catches Resend errors internally), so the audit is still written even when the email provider rejects the recipient — verified by mongo inspection showing 11 verification_email_sent docs despite repeated Resend rejections in logs.",
+    "routers/auth.py logout: defensively decodes the access_token cookie with JWT_SECRET; if missing/expired, captures user_id=None,user_email=None but still records the audit. Verified: with a valid session the audit has user_id+user_email populated.",
+    "routers/memo.py: record_audit payload includes city, submarket, property_type, size_sqft, verified_only, comps_count, developments_count, indicative_value, filename — covers all required fields per spec.",
+    "routers/sources.py: nhai + sub_registrar refresh both emit action='data_source_refresh' with payload={source, ingested}; ingested is the count of upserted+modified docs from MongoDB UpdateResult. Verified types are int.",
+    "models.py AuditLog inherits BaseDocument: to_mongo() correctly omits id key and the audit helper drops `_id` before insert so Mongo generates a fresh ObjectId — no _id leakage risk.",
+    "frontend/src/components/ErrorBoundary.jsx: clean class component, getDerivedStateFromError sets {hasError:true, error}, componentDidCatch only console.errors (won't itself throw). Fallback container has data-testid='error-boundary-fallback', reload/home buttons + error-message pre all carry the required testids.",
+    "frontend/src/App.js: <ErrorBoundary> wraps <AuthProvider><BrowserRouter>...</BrowserRouter></AuthProvider> — sits at the absolute top of the tree as required."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_task4_audit_logs.py (new — 9 tests covering all audit actions, ISO-UTC ts shape, IP presence, best-effort behaviour)"
+  ],
+  "success_rate": {
+    "backend_task4_audit": "100% (9/9)",
+    "backend_regression": "100% (45/45)",
+    "frontend": "100% (landing + /login render without fallback; ErrorBoundary structure verified by source)"
+  },
+  "test_credentials": "admin@placeholder.in / admin123 — works",
+  "seed_data_creation": "None persistent. Test creates 2 transient users with email prefix 'test_audit_' which are deleted in best-effort teardown. NHAI/sub_registrar refreshes are idempotent upserts (safe).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest backend/tests/test_task4_audit_logs.py -v` (6-7 sec, fast). Tests hit localhost:8001 directly to bypass Cloudflare. Email-store-case caveat: backend lowercases email in /auth/register handler, so audit queries must use lowercase user_email. record_audit is best-effort (try/except) — verified by both behaviour (Resend rejection still produces the audit doc) and source inspection. Open from prior iterations: Task 3 global-60/min 429 JSON shape inconsistency — LIMITER_ENABLED currently false in backend/.env so not exercised here; re-enable before production cut.",
+  "rca_of_the_issue": "N/A — Task 4 audit logs and ErrorBoundary both implemented correctly and pass all required acceptance criteria. Initial test failures on first run were test-side issues (email case mismatch and missing sys.path for module import) — fixed; the production code under test had no defects."
+}

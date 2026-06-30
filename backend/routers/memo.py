@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from core.db import db
 from core.email_utils import verified_filter
+from core.audit import record_audit
 from core.rate_limit import limiter, _user_or_ip_key
 from core.security import get_current_user
 from models import Comp, Development, Memo
@@ -65,6 +66,21 @@ async def valuation_memo(request: Request, payload: MemoIn, user: dict = Depends
         filename=fname,
     )
     await db.memos.insert_one(memo.to_mongo())
+    await record_audit(
+        "memo_generated", request=request,
+        user_id=user["id"], user_email=user["email"],
+        payload={
+            "city": payload.city,
+            "submarket": payload.submarket,
+            "property_type": payload.property_type,
+            "size_sqft": payload.size_sqft,
+            "verified_only": payload.verified_only,
+            "comps_count": len(comps),
+            "developments_count": len(developments),
+            "indicative_value": avg_psf * payload.size_sqft,
+            "filename": fname,
+        },
+    )
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
 

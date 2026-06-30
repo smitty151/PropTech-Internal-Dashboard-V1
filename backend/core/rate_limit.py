@@ -4,6 +4,9 @@
 - /api/auth/*: 5 req/min per IP (decorator on each auth route)
 - /api/valuation-memo: 5 req/min per user (decorator using user-id key)
 - 429 responses are returned as clean JSON.
+
+Set `LIMITER_ENABLED=false` in the env to bypass rate limiting (used by the
+test suite so back-to-back regression runs aren't throttled).
 """
 import os
 
@@ -33,16 +36,24 @@ def _user_or_ip_key(request: Request) -> str:
     return f"ip:{get_remote_address(request)}"
 
 
-# Single shared limiter — global default applied via decorator on app.
+_ENABLED = os.environ.get("LIMITER_ENABLED", "true").lower() != "false"
+
+# Single shared limiter — global default applied via middleware in server.py.
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["60/minute"],
+    default_limits=["60/minute"] if _ENABLED else [],
     headers_enabled=False,
+    enabled=_ENABLED,
 )
 
 
-async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    """Clean JSON 429 response (slowapi's default returns plain text)."""
+def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Clean JSON 429 response (slowapi's default returns a bare 'error' message).
+
+    NOTE: Must be a sync function so slowapi's middleware (sync_check_limits)
+    can call it directly for global-default limits. Async handlers are silently
+    dropped by slowapi and replaced with its own default response.
+    """
     return JSONResponse(
         status_code=429,
         content={

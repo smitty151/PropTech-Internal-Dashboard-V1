@@ -127,13 +127,3 @@ export default function ValuationMemo() {
     </div>
   );
 }
-             <div className="text-xs text-[var(--ph-muted)] font-mono-ph">@ ₹{Math.round(m.avg_psf || 0).toLocaleString("en-IN")}/sqft</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}

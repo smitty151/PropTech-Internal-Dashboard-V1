@@ -10,6 +10,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from core.db import db
 from core.email_utils import new_verification_token, send_verification_email
+from core.audit import record_audit
 from core.rate_limit import limiter
 from core.security import (
     hash_password, verify_password,
@@ -59,6 +60,10 @@ async def register(request: Request, payload: RegisterIn, response: Response):
     )
     await db.users.insert_one(new_user.to_mongo())
     await send_verification_email(email, payload.name, token)
+    await record_audit(
+        "verification_email_sent", request=request,
+        user_email=email, payload={"reason": "register", "name": payload.name},
+    )
     return {
         "ok": True,
         "email": email,
@@ -81,6 +86,10 @@ async def login(request: Request, payload: LoginIn, response: Response):
             detail="Please verify your email before signing in. Check your inbox or request a new link.",
         )
     set_auth_cookies(response, create_access_token(user.id, email), create_refresh_token(user.id))
+    await record_audit(
+        "login", request=request,
+        user_id=user.id, user_email=user.email, payload={"role": user.role},
+    )
     return {
         "id": user.id,
         "email": user.email,
@@ -124,14 +133,29 @@ async def resend_verification(request: Request, payload: ResendIn):
         {"$set": {"verification_token": token, "verification_expires": expires}},
     )
     await send_verification_email(user.email, user.name, token)
+    await record_audit(
+        "verification_email_sent", request=request,
+        user_email=user.email, payload={"reason": "resend"},
+    )
     return {"ok": True}
 
 
 @router.post("/logout")
 @limiter.limit(AUTH_LIMIT)
 async def logout(request: Request, response: Response):
+    # Best-effort: capture who logged out (token may be missing / expired).
+    user_id, user_email = None, None
+    try:
+        import jwt as _jwt, os as _os
+        tok = request.cookies.get("access_token")
+        if tok:
+            data = _jwt.decode(tok, _os.environ["JWT_SECRET"], algorithms=["HS256"])
+            user_id, user_email = data.get("sub"), data.get("email")
+    except Exception:
+        pass
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
+    await record_audit("logout", request=request, user_id=user_id, user_email=user_email)
     return {"ok": True}
 
 
