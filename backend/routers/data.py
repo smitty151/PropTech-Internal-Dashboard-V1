@@ -6,12 +6,19 @@ from fastapi import APIRouter, Depends
 from core.db import db
 from core.email_utils import verified_filter
 from core.security import get_current_user
+from models import Comp, Development, Reit
 
 router = APIRouter(tags=["data"])
 
 
+def _serialize(model_cls, doc: dict) -> dict:
+    """Pass through Mongo doc → typed model → dict (preserves legacy keys via extra='allow')."""
+    return model_cls.from_mongo(doc).model_dump(exclude={"id"}, exclude_none=False)
+
+
 @router.get("/markets")
 async def list_markets():
+    # markets is reference data and stays a flat dict (no typed model in scope).
     return await db.markets.find({}, {"_id": 0}).to_list(100)
 
 
@@ -29,7 +36,8 @@ async def list_developments(
         q["type"] = type
     if verified_only:
         q.update(verified_filter())
-    return await db.developments.find(q, {"_id": 0}).to_list(2000)
+    docs = await db.developments.find(q).to_list(2000)
+    return [_serialize(Development, d) for d in docs]
 
 
 @router.get("/developments/stats")
@@ -77,7 +85,8 @@ async def list_comps(
         q["sold_price_inr"] = rng
     if verified_only:
         q.update(verified_filter())
-    return await db.comps.find(q, {"_id": 0}).limit(500).to_list(500)
+    docs = await db.comps.find(q).limit(500).to_list(500)
+    return [_serialize(Comp, d) for d in docs]
 
 
 @router.get("/comps/stats")
@@ -96,4 +105,5 @@ async def comps_stats(user: dict = Depends(get_current_user)):
 
 @router.get("/reits")
 async def list_reits(user: dict = Depends(get_current_user)):
-    return await db.reits.find({}, {"_id": 0}).to_list(100)
+    docs = await db.reits.find({}).to_list(100)
+    return [_serialize(Reit, d) for d in docs]

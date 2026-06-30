@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from core.db import db, client
 from core.security import hash_password, verify_password
+from models import User
 from routers import auth as auth_router
 from routers import data as data_router
 from routers import memo as memo_router
@@ -55,15 +56,15 @@ async def startup_event():
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})
     if not existing:
-        await db.users.insert_one({
-            "email": admin_email,
-            "password_hash": hash_password(admin_password),
-            "name": "Admin",
-            "company": "PlaceHolder",
-            "role": "admin",
-            "email_verified": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        admin = User(
+            email=admin_email,
+            password_hash=hash_password(admin_password),
+            name="Admin",
+            company="PlaceHolder",
+            role="admin",
+            email_verified=True,
+        )
+        await db.users.insert_one(admin.to_mongo())
         logger.info(f"Seeded admin {admin_email}")
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one(

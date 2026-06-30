@@ -1,0 +1,52 @@
+{
+  "summary": "Task-2 (PyObjectId + BaseDocument migration) verification. Re-ran full regression suite (test_proptech_backend.py — 33/35 pass) plus added new Task-2-specific Mongo + response-shape suite (test_task2_model_migration.py — 10/10 pass). 43/45 PASS overall. ONE migration regression found: GET /api/developments returns 500 because legacy seed-data Development docs lack the required `source` field that the new Development model enforces — seed_data.py bypasses the to_mongo() contract.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/developments",
+        "issue": "Returns 500 (pydantic_core.ValidationError: Development.source — Field required). Reproduction: seed_data.py line 102-116 inserts raw dicts into db.developments WITHOUT a `source` field; new Development model in models.py line 118 declares `source: str` (required, no default). When list_developments() calls Development.from_mongo(legacy_doc), validation fails → 500. Same risk applies to any /developments query that includes a seed (non-NHAI) doc. The verified_only=true filter happens to mask the bug because it only matches NHAI/Sub-Registrar sources. Task-2 contract states 'every write must go through instance.to_mongo()' — seed_data.py violates this rule. Recommended fix: migrate seed_data.py to use `Development(...).to_mongo()` with a source value like 'Seed (mock)', OR make `source: Optional[str] = None` in models.py.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET /api/developments?verified_only=true (then unfiltered)",
+        "issue": "test_developments_verified_only_filter line 151 calls unfiltered /api/developments first and inherits the same 500 — same root cause as above.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "transient 502s observed",
+        "issue": "Under parallel pytest-xdist load, the public preview URL occasionally returned 502 from Cloudflare (Bad Gateway). Tests pass cleanly when run sequentially (-n 0). Flaky in parallel, not a backend bug per se."
+      }
+    ]
+  },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_proptech_backend.py",
+    "/app/backend/tests/test_task2_model_migration.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix seed_data.py to honour Task-2 model contract: replace the raw `db.developments.insert_many(developments)` block at line 117 with one that builds Development(...) instances (must include `source` field) and inserts via .to_mongo(). Same idea optionally for comps (already has source) for consistency.",
+    "OR alternatively relax models.py: `source: Optional[str] = None` on Development (and possibly Comp/Memo for safety). This unblocks read-time on any historical doc that is missing the field.",
+    "Decide whether existing Mongo data in `developments` (seeded before this migration) should be backfilled via a one-shot migration script to add `source` (e.g. 'Seed (mock)') — otherwise the 500 will persist for any deployment with pre-existing data."
+  ],
+  "critical_code_review_comments": [
+    "seed_data.py inserts raw dicts directly — violates the Task-2 contract 'every write must go through instance.to_mongo()'. This is the single root cause of both regressions.",
+    "Development model declares `source: str` (required) but the same model is used for BOTH new writes (where source is always set) AND reads of legacy data (where source may be missing). The required-on-write but tolerate-on-read split is unusual; consider Optional default to make from_mongo() forgiving for legacy docs.",
+    "core/security.py get_current_user correctly excludes password_hash + verification_token + verification_expires + _id via model_dump(exclude={...}) — verified via /api/auth/me response (no leakage).",
+    "routers/sources.py _record_run() pops `_id` from to_mongo() output before $set in upsert — correct, avoids Mongo's 'cannot modify immutable _id' error on update path.",
+    "models.py to_mongo() correctly omits the `id` key on the way out so Mongo auto-generates ObjectId on insert. Verified via direct pymongo inspection — persisted user/dev/comp/memo/run docs all have ObjectId `_id` and no string `id`.",
+    "routers/data.py _serialize() uses model_dump(exclude={'id'}) — verified no `_id` or `id` leaks in /developments, /comps, /reits, /memos response payloads."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_task2_model_migration.py (new — 10 tests, all pass)"
+  ],
+  "success_rate": { "backend": "95.5% (43/45)", "frontend": "not tested (skipped per request)" },
+  "test_credentials": "admin@placeholder.in / admin123 — works",
+  "seed_data_creation": "Each Task-2 test that needs a fresh user prefixes the email with `test_task2_<uuid>@` and deletes the doc in teardown via pymongo. NHAI + Sub-Registrar refresh endpoints are idempotent upserts; safe to call repeatedly.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/ -v -n 0 --junitxml=/app/test_reports/pytest/pytest_results.xml` (the `-n 0` defeats xdist parallelism which causes intermittent 502s from Cloudflare under load against the preview URL). After main agent applies the seed_data.py fix (Option 1) or models.py fix (Option 2), both failing regression tests in test_proptech_backend.py::TestData should turn green without any code change to the test file. The new /app/backend/tests/test_task2_model_migration.py is the canonical Task-2 contract suite and should remain green across any future tasks.",
+  "rca_of_the_issue": "ROOT CAUSE: seed_data.py inserts ~280 Development docs as raw dicts at line 117 (db.developments.insert_many(developments)). These dicts (constructed line 102-116) lack a `source` key. The Task-2 Development model in /app/backend/models.py declares `source: str` (required, no default). routers/data.py::list_developments calls `_serialize(Development, d) = Development.from_mongo(d).model_dump(exclude={'id'})` for every doc returned. When a legacy seed doc reaches from_mongo, Pydantic raises `ValidationError: source — Field required` and the endpoint returns 500. REPRODUCTION: `curl -b cookies.txt $REACT_APP_BACKEND_URL/api/developments` (admin-authed) — 500. Adding `?verified_only=true` returns 200 because the filter excludes seed docs (only matches `source ~= '^(NHAI|Sub-Registrar)'`). MITIGATION (pick one): (1) Migrate seed_data.py to use Development(...).to_mongo() with `source='Seed (mock)'`. (2) Make `source: Optional[str] = None` in models.py Development (and probably Comp/Memo for symmetric safety). (3) Run a one-shot migration: `db.developments.updateMany({source: {$exists: false}}, {$set: {source: 'Seed (mock)'}})`."
+}

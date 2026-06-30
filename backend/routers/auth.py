@@ -12,6 +12,7 @@ from core.security import (
     create_access_token, create_refresh_token, set_auth_cookies,
     get_current_user,
 )
+from models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,18 +40,17 @@ async def register(payload: RegisterIn, response: Response):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     token, expires = new_verification_token()
-    doc = {
-        "email": email,
-        "password_hash": hash_password(payload.password),
-        "name": payload.name,
-        "company": payload.company,
-        "role": "user",
-        "email_verified": False,
-        "verification_token": token,
-        "verification_expires": expires,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.users.insert_one(doc)
+    new_user = User(
+        email=email,
+        password_hash=hash_password(payload.password),
+        name=payload.name,
+        company=payload.company,
+        role="user",
+        email_verified=False,
+        verification_token=token,
+        verification_expires=expires,
+    )
+    await db.users.insert_one(new_user.to_mongo())
     await send_verification_email(email, payload.name, token)
     return {
         "ok": True,
@@ -63,54 +63,57 @@ async def register(payload: RegisterIn, response: Response):
 @router.post("/login")
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
-    user = await db.users.find_one({"email": email})
-    if not user or not verify_password(payload.password, user["password_hash"]):
+    raw = await db.users.find_one({"email": email})
+    if not raw or not verify_password(payload.password, raw["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not user.get("email_verified", False) and user.get("role") != "admin":
+    user = User.from_mongo(raw)
+    if not user.email_verified and user.role != "admin":
         raise HTTPException(
             status_code=403,
             detail="Please verify your email before signing in. Check your inbox or request a new link.",
         )
-    uid = str(user["_id"])
-    set_auth_cookies(response, create_access_token(uid, email), create_refresh_token(uid))
+    set_auth_cookies(response, create_access_token(user.id, email), create_refresh_token(user.id))
     return {
-        "id": uid,
-        "email": user["email"],
-        "name": user.get("name", ""),
-        "company": user.get("company"),
-        "role": user.get("role", "user"),
-        "email_verified": user.get("email_verified", False),
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "company": user.company,
+        "role": user.role,
+        "email_verified": user.email_verified,
     }
 
 
 @router.get("/verify-email")
 async def verify_email(token: str):
-    user = await db.users.find_one({"verification_token": token})
-    if not user:
+    raw = await db.users.find_one({"verification_token": token})
+    if not raw:
         raise HTTPException(status_code=400, detail="Invalid or already-used verification link.")
-    expires = user.get("verification_expires")
-    if expires and datetime.fromisoformat(expires) < datetime.now(timezone.utc):
+    user = User.from_mongo(raw)
+    if user.verification_expires and datetime.fromisoformat(user.verification_expires) < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="This verification link has expired. Please request a new one.")
     await db.users.update_one(
-        {"_id": user["_id"]},
+        {"email": user.email},
         {"$set": {"email_verified": True},
          "$unset": {"verification_token": "", "verification_expires": ""}},
     )
-    return {"ok": True, "email": user["email"]}
+    return {"ok": True, "email": user.email}
 
 
 @router.post("/resend-verification")
 async def resend_verification(payload: ResendIn):
-    user = await db.users.find_one({"email": payload.email.lower()})
+    raw = await db.users.find_one({"email": payload.email.lower()})
     # Always respond ok to avoid email enumeration
-    if not user or user.get("email_verified"):
+    if not raw:
+        return {"ok": True}
+    user = User.from_mongo(raw)
+    if user.email_verified:
         return {"ok": True}
     token, expires = new_verification_token()
     await db.users.update_one(
-        {"_id": user["_id"]},
+        {"email": user.email},
         {"$set": {"verification_token": token, "verification_expires": expires}},
     )
-    await send_verification_email(user["email"], user.get("name", ""), token)
+    await send_verification_email(user.email, user.name, token)
     return {"ok": True}
 
 

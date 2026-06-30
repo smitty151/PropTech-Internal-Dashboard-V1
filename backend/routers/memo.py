@@ -1,5 +1,5 @@
 """Valuation memo (PDF) + memo history endpoints."""
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Response
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from core.db import db
 from core.email_utils import verified_filter
 from core.security import get_current_user
+from models import Comp, Development, Memo
 
 router = APIRouter(tags=["memo"])
 
@@ -30,30 +31,40 @@ async def valuation_memo(payload: MemoIn, user: dict = Depends(get_current_user)
         cq["property_type"] = payload.property_type
     if payload.verified_only:
         cq.update(verified_filter())
-    comps = await db.comps.find(cq, {"_id": 0}).limit(200).to_list(200)
+    raw_comps = await db.comps.find(cq).limit(200).to_list(200)
+    comps = [Comp.from_mongo(c).model_dump(exclude={"id"}) for c in raw_comps]
 
     dq: dict = {"city": payload.city}
     if payload.verified_only:
         dq.update(verified_filter())
-    developments = await db.developments.find(dq, {"_id": 0}).limit(50).to_list(50)
+    raw_devs = await db.developments.find(dq).limit(50).to_list(50)
+    developments = [Development.from_mongo(d).model_dump(exclude={"id"}) for d in raw_devs]
 
     pdf = build_valuation_memo(payload.model_dump(), comps, developments, user)
     fname = f"memo_{payload.city.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+
     psfs = [c["price_per_sqft"] for c in comps if c.get("price_per_sqft")]
     avg_psf = sum(psfs) / len(psfs) if psfs else 0
-    await db.memos.insert_one({
-        "user_id": user["id"], "user_email": user["email"],
-        "city": payload.city, "submarket": payload.submarket,
-        "property_type": payload.property_type, "size_sqft": payload.size_sqft,
-        "verified_only": payload.verified_only,
-        "comps_count": len(comps), "developments_count": len(developments),
-        "avg_psf": avg_psf, "indicative_value": avg_psf * payload.size_sqft,
-        "filename": fname, "generated_at": datetime.now(timezone.utc).isoformat(),
-    })
+    memo = Memo(
+        user_id=user["id"],
+        user_email=user["email"],
+        city=payload.city,
+        submarket=payload.submarket,
+        property_type=payload.property_type,
+        size_sqft=payload.size_sqft,
+        verified_only=payload.verified_only,
+        comps_count=len(comps),
+        developments_count=len(developments),
+        avg_psf=avg_psf,
+        indicative_value=avg_psf * payload.size_sqft,
+        filename=fname,
+    )
+    await db.memos.insert_one(memo.to_mongo())
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 @router.get("/memos")
 async def list_memos(user: dict = Depends(get_current_user)):
-    return await db.memos.find({"user_id": user["id"]}, {"_id": 0}).sort("generated_at", -1).limit(50).to_list(50)
+    docs = await db.memos.find({"user_id": user["id"]}).sort("generated_at", -1).limit(50).to_list(50)
+    return [Memo.from_mongo(d).model_dump(exclude={"id"}) for d in docs]
