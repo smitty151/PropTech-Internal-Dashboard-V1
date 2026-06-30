@@ -12,8 +12,22 @@ export default function ValuationMemo() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [history, setHistory] = useState([]);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  const loadHistory = async () => {
+    try {
+      const { data } = await api.get("/memos");
+      setHistory(Array.isArray(data) ? data : []);
+    } catch {
+      setHistory([]);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
 
   const generate = async (e) => {
     e.preventDefault();

@@ -1,0 +1,43 @@
+{
+  "summary": "Hotfix verification PASSED. Backend regression (test_proptech_backend.py + test_task2_model_migration.py + test_task4_audit_logs.py) = 54/54 PASS. Frontend e2e verified on live preview origin https://placeholder-dash.preview.emergentagent.com: (1) Login admin@placeholder.in/admin123 -> 200 + navigates to /app. (2) /app/memo renders cleanly with memo-page, memo-form, memo-history testids present; NO error-boundary-fallback in DOM. (3) GET /api/memos returns 200 with array; history container shows existing 16 memo rows on first load. (4) Form submission (City=Bengaluru, size=1200, verified_only=false) -> POST /api/valuation-memo returns 200 with Content-Type: application/pdf. (5) After generation, loadHistory re-fires; counter increments from 16 to 17 ('MY MEMOS (17)'); the new entry appears at data-testid=memo-history-0 with text 'Bengaluru · Apartment · 1200 sqft · 12 comps · ₹1.98 Cr'. (6) Sibling pages /app/developments, /app/comps, /app/calculator, /app/data-sources all render WITHOUT the ErrorBoundary fallback. Hotfix is solid.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/app/calculator", "issues": ["React console warning: 'Each child in a list should have a unique key prop' inside Calculator render method.", "React hydration-style warning: '<span> cannot be a child of <option>' — an icon/span is being rendered inside a native <option> element which is invalid HTML. Both are non-fatal (page renders, no ErrorBoundary fallback) but should be cleaned up."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_proptech_backend.py",
+    "/app/backend/tests/test_task2_model_migration.py",
+    "/app/backend/tests/test_task4_audit_logs.py",
+    "/app/test_reports/pytest/iteration5_regression.xml"
+  ],
+  "action_items": [
+    "OPTIONAL/minor: Clean up Calculator.jsx — remove <span> children of <option> (use plain text in <option>) and add stable key props to its list render. Not blocking.",
+    "Carry-forward from iteration_3: Task 3 global-60/min 429 JSON shape inconsistency remains open (LIMITER_ENABLED=false in /app/backend/.env suppresses it in test mode). Re-evaluate before production."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/pages/ValuationMemo.js: history state + loadHistory + useEffect correctly added at lines 15-30. Defensive Array.isArray check on /api/memos response prevents the original 'history.map is not a function' crash. loadHistory is re-fired inside generate().then which keeps the list fresh after each memo. Verified empirically: counter went 16 -> 17, no duplicate keys, no stale state.",
+    "/app/backend/.env CORS_ORIGINS: now explicit comma-separated list including the live preview origin + the alt 76783c70 origin + http://localhost:3000 — correct for credentialed (withCredentials:true) axios calls. No wildcard. Frontend and backend served from same placeholder-dash origin so cookies flow cleanly (confirmed: /api/auth/login set Set-Cookie; subsequent /api/memos and /api/valuation-memo carried session and returned 200).",
+    "ErrorBoundary remains a transparent pass-through — no fallback rendered on memo or any sibling page during this run."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_5.json (new)",
+    "/app/test_reports/pytest/iteration5_regression.xml (new — junit output of the 54-test regression run)"
+  ],
+  "success_rate": {
+    "backend": "100% (54/54 regression)",
+    "frontend": "100% (all 7 acceptance criteria pass)"
+  },
+  "test_credentials": "admin@placeholder.in / admin123 — works (POST /api/auth/login returned 200, cookies set, /api/me + /api/memos + /api/valuation-memo all authenticated correctly)",
+  "seed_data_creation": "Test generated 1 additional valuation memo doc in the memos collection (Bengaluru / Apartment / 1200 sqft / All sources / ₹1.98 Cr). Not cleaned up — harmless test artifact in admin user's history. Prior 16 memos already existed from earlier iterations.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Always use frontend host https://placeholder-dash.preview.emergentagent.com (same origin as REACT_APP_BACKEND_URL, so axios withCredentials:true works). Do NOT use the 76783c70 alias — cookies get stripped by Cloudflare's ACAO rewrite. For backend curl/pytest, hit https://placeholder-dash.preview.emergentagent.com/api/* directly. Note: the dashboard's /api/health endpoint returns 404 — there's no health route registered; use /api/me with cookies or /api/markets as a liveness check instead. LIMITER_ENABLED=false in backend/.env (intentional for test convenience).",
+  "rca_of_the_issue": "Root cause of demo crash was missing useState/useEffect in /app/frontend/src/pages/ValuationMemo.js — `history` was referenced in JSX as `history.map(...)` but the window's global `history` object (a History DOM interface, not an array) was being resolved instead, hence 'history.map is not a function'. Fix added local state `const [history, setHistory] = useState([])` + `loadHistory()` async fn (with Array.isArray defensive check) + `useEffect(() => loadHistory(), [])` to hydrate on mount and a second loadHistory() after generate() — all verified working end-to-end. Secondary fix: CORS_ORIGINS swapped from '*' to explicit origin list to support credentialed axios requests."
+}
