@@ -1,0 +1,35 @@
+{
+  "summary": "Backend regression after router split (auth/data/memo/calc/sources). Wrote /app/backend/tests/test_proptech_backend.py covering all 15 review checkpoints. 35/35 pytest tests PASS against the public preview URL. No regressions detected vs pre-split behaviour.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/markets", "issue": "Unlike /developments, /comps, /reits, /markets is NOT protected by get_current_user. Likely intentional (markets is reference data), but worth confirming — it's the only data endpoint that doesn't require auth."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_proptech_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Decide whether GET /api/markets should require auth (currently public). If yes, add `user: dict = Depends(get_current_user)` to list_markets in routers/data.py."
+  ],
+  "critical_code_review_comments": [
+    "core/db.py: module-level os.environ[...] access works because server.py calls load_dotenv() before import — fine, but a brittle ordering contract. Consider lazy db getter or explicit load_dotenv() call inside core/db.py.",
+    "routers/memo.py imports build_valuation_memo inside the handler — okay for cold-start latency but worth moving to top-level once stable.",
+    "routers/sources.py CSV upload route has no auth on /csv/template path either — `user: dict = Depends(get_current_user)` is correctly applied. Verified.",
+    "routers/auth.py login: HTTPException raised before set_auth_cookies — clean. Cookies set with secure=False (acceptable for preview, must be True in prod over HTTPS).",
+    "core/security.py: get_current_user strips password_hash, verification_token and _id — good. But it does NOT strip verification_expires; not sensitive, but consider stripping for cleanliness.",
+    "No global rate limiting on /auth/login or /auth/resend-verification — vulnerable to brute-force / email-spam. Out of scope for refactor verification but flagging."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_proptech_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "admin@placeholder.in / admin123 (from /app/memory/test_credentials.md) — works.",
+  "seed_data_creation": "Tests register a transient user (test_<uuid>@example.com) — left in DB to validate duplicate-rejection + unverified-login. Safe to ignore; idempotent across reruns because email is randomised.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend router-split refactor is verified end-to-end. Reusable regression suite at /app/backend/tests/test_proptech_backend.py uses pytest + requests.Session for cookie auth. Run with: `pytest /app/backend/tests/test_proptech_backend.py -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. Verified flows: admin login (cookies set), /me, logout (cookies cleared), register (unverified), duplicate-register 400, unverified-login 403, resend-verification idempotent ok:true, markets/developments/comps/reits/stats, verified_only filter (NHAI|Sub-Registrar regex), WACC math (60/40 mix => weighted Kd 11.6, wacc≈11.84), NHAI refresh, Sub-Registrar refresh, data-sources listing with last_run, CSV template download, valuation-memo PDF (Content-Type application/pdf, body starts with %PDF) + memo persistence in /api/memos, and 13 protected endpoints all return 401 unauthenticated.",
+  "rca_of_the_issue": "N/A — no bugs found; refactor preserved behaviour."
+}

@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --ph-bg: #FFFFFF;
+    --ph-bg-2: #F7F7F4;
+    --ph-bg-3: #EEEEE8;
+    --ph-ink: #0A0A0A;
+    --ph-ink-2: #4B5563;
+    --ph-muted: #9CA3AF;
+    --ph-line: #E5E5E0;
+    --ph-brand: #002FA7;
+    --ph-accent: #E11D48;
+    --ph-success: #16A34A;
+}
+
+html, body, #root {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--ph-bg);
+    color: var(--ph-ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.font-display {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+}
+
+.font-mono-ph {
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.tiny-caps {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.cell {
+    border-right: 1px solid var(--ph-line);
+    border-bottom: 1px solid var(--ph-line);
+    background: var(--ph-bg);
+}
+.cell:hover { background: var(--ph-bg-2); }
+
+.panel {
+    border: 1px solid var(--ph-line);
+    background: var(--ph-bg);
+}
+
+.btn-primary {
+    background: var(--ph-ink);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 2px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    border: 1px solid var(--ph-ink);
+    display: inline-block;
+}
+.btn-primary:hover { background: var(--ph-brand); border-color: var(--ph-brand); }
+
+.btn-outline {
+    background: transparent;
+    color: var(--ph-ink);
+    padding: 10px 18px;
+    border-radius: 2px;
+    font-weight: 600;
+    border: 1px solid var(--ph-ink);
+    transition: all 0.15s ease;
+    display: inline-block;
+}
+.btn-outline:hover { background: var(--ph-ink); color: #fff; }
+
+.input-ph {
+    background: var(--ph-bg);
+    border: 1px solid var(--ph-line);
+    padding: 10px 12px;
+    border-radius: 2px;
+    width: 100%;
+    font-size: 14px;
+    transition: border-color 0.15s ease;
+}
+.input-ph:focus { outline: none; border-color: var(--ph-ink); }
+
+.leaflet-container { background: #EFEEE8; }
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 0 0% 3.9%;
+        --card: 0 0% 100%;
+        --card-foreground: 0 0% 3.9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 0 0% 3.9%;
+        --primary: 0 0% 9%;
+        --primary-foreground: 0 0% 98%;
+        --secondary: 0 0% 96.1%;
+        --secondary-foreground: 0 0% 9%;
+        --muted: 0 0% 96.1%;
+        --muted-foreground: 0 0% 45.1%;
+        --accent: 0 0% 96.1%;
+        --accent-foreground: 0 0% 9%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 0 0% 89.8%;
+        --input: 0 0% 89.8%;
+        --ring: 0 0% 3.9%;
+        --radius: 0.25rem;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+}
