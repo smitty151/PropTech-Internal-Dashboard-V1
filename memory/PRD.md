@@ -33,27 +33,60 @@ Build an aggregator of India real estate data: track developments (metro, airpor
 - **Frontend**: `ConfidenceToggle` ("All sources" / "Verified only") on both Developments and Comps pages; `ConfidenceBadge` (green VERIFIED / grey OPEN) in comps table column and on developments detail card.
 - Analysts can now generate a "defensible only" view for valuation memos by flipping one toggle.
 
-## Backlog (Phase 2.5+)
-**P0 — make data real**
-- RERA API integration per state (residential)
-- Govt portals scrapers (NHAI / MoCA / Railways / metro corporations) for infra projects
-- MagicBricks / 99acres / Housing.com scrapers for comps (asking) + Sub-Registrar data (sold)
-- Reuters / Yahoo for live REIT prices & yields
+## What's Implemented (Phase 2.3 — Email verification) — completed 2026-02
+- Resend transactional email integration (`/app/backend/core/email_utils.py`)
+- POST /api/auth/register issues a 6-hour verification token + sends HTML email
+- GET /api/auth/verify-email?token=... marks user verified
+- POST /api/auth/resend-verification (rate-limited, enum-safe — always returns ok)
+- Login blocks unverified users (admin role bypasses for ops)
+- Frontend `/verify` page handles success/expired states
 
-**P1 — analytics & advisory**
-- Sub-market heatmaps (price growth, absorption, vacancy)
-- Comparable-sales-driven valuation reports (PDF export)
-- Saved searches, watchlists & email alerts
-- Building-level pages (transaction history, ownership chain, photos)
-- Cap rate calculator + DCF templates with sensitivity analysis
+## What's Implemented (Phase 2.3.1 — Valuation Memo PDF) — completed 2026-02
+- POST /api/valuation-memo — generates source-attributed PDF (ReportLab)
+- Per-user memo history persisted in `memos` collection (`/api/memos`)
+- "Use VERIFIED sources only" toggle on the memo form (recommended default for client work)
+- Memo includes: indicative ₹/sqft + total value, up to 200 comps with confidence badges, up to 50 nearby developments, full source attribution
 
-**P2 — monetisation**
-- Subscription tiering (Starter / Pro / Enterprise) with Razorpay/Stripe
-- API access for B2B customers
-- Team workspaces & sharing
-- Mobile app
+## What's Implemented (Hardening pass — Task 6) — completed 2026-02
+- **Router split**: server.py is now a thin entrypoint; routes live in
+  /app/backend/routers/{auth,data,memo,calc,sources}.py, shared helpers in
+  /app/backend/core/{db,security,email_utils,rate_limit,audit}.py.
+- **PyObjectId + BaseDocument model layer** (`/app/backend/models.py`):
+  User, Memo, Development, Comp, Reit, DataSourceRun, AuditLog. All
+  collection writes go through `to_mongo()`; all reads through
+  `from_mongo()`. No raw dict spreading.
+- **slowapi rate limiting** (`/app/backend/core/rate_limit.py`):
+  global 60/min/IP, /api/auth/* 5/min/IP, /api/valuation-memo 5/min/user.
+  Clean JSON 429 response. `LIMITER_ENABLED` env toggle (currently `false`
+  in preview for test convenience — FLIP TO `true` BEFORE PROD DEPLOY).
+- **React ErrorBoundary** (`/app/frontend/src/components/ErrorBoundary.jsx`)
+  wraps App.js — graceful fallback UI with Reload + Go home actions;
+  data-testid='error-boundary-fallback'. Verified live: caught a real
+  ValuationMemo crash during demo (root-cause fixed).
+- **audit_logs collection** (`/app/backend/core/audit.py`): records
+  login, logout, memo_generated, data_source_refresh,
+  verification_email_sent with user_id, user_email, action, ip, payload,
+  timestamp (UTC ISO).
+- **Test coverage**: 54 backend tests pass (test_proptech_backend,
+  test_task2_model_migration, test_task4_audit_logs).
+
+## Backlog (Phase 2.4+)
+See `/app/memory/ROADMAP.md` for the full strategic plan. Top P0 items:
+- RERA project tracking (state-by-state) + Developer credit/delivery scorecard
+- Building-level objects (grade, age, certifications) + Lease comps + Tenant directory
+- Multi-method valuation engine (DCF, residual land, cost approach + sensitivity tables)
+- Cap-rate intelligence (median × asset class × submarket)
+- Admin audit-log viewer (we write logs but no UI yet)
+- Watchlists, deal rooms, alerts
+- Multi-tenancy + Stripe billing + Public API for B2B
+
+## Carry-forward minor cleanups
+- Calculator.js: stable `key` prop on tranche list + remove `<span>` inside `<option>`
+- Flip `LIMITER_ENABLED=true` in /app/backend/.env before any prod deploy
+- /api/memos pagination (currently capped at 50)
 
 ## Known Limitations
-- All numbers are seeded mock data; no live sources connected yet
+- All non-NHAI / non-Sub-Registrar numbers are seeded mock data
 - No payment / subscription flow
 - No multi-tenant data scoping
+- No admin UI for audit_logs read access (writes work)
